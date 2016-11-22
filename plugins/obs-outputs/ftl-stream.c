@@ -380,8 +380,8 @@ static int send_packet(struct ftl_stream *stream,
 }
 
 static void set_peak_bitrate(struct ftl_stream *stream) {
-	int speedtest_kbps = 10000;
-	int speedtest_duration = 1000;
+	int speedtest_kbps = 20000;
+	int speedtest_duration = 250;
 
 	warn("Running speed test: sending %d kbps for %d ms", speedtest_kbps, speedtest_duration);
 	float packetloss_rate = 0;
@@ -393,6 +393,8 @@ static void set_peak_bitrate(struct ftl_stream *stream) {
 	else{
 		stream->params.peak_kbps = (float)speedtest_kbps * (100.f - packetloss_rate) / 110;
 	}
+
+	stream->params.peak_kbps = 15000;
 
 	warn("Running speed test complete: packet loss rate was %3.2f, setting peak bitrate to %d\n", packetloss_rate, stream->params.peak_kbps);
 
