@@ -226,6 +226,7 @@ static void *ftl_stream_create(obs_data_t *settings, obs_output_t *output)
 	pthread_mutex_init_value(&stream->packets_mutex);
 	
 	ftl_init();
+	//&stream->ftl_handle = NULL;
 
 	if (pthread_mutex_init(&stream->packets_mutex, NULL) != 0)
 		goto fail;
@@ -414,7 +415,7 @@ static int send_packet(struct ftl_stream *stream,
 }
 
 static void set_peak_bitrate(struct ftl_stream *stream) {
-	int speedtest_kbps = 20000;
+	int speedtest_kbps = 4000;
 	int speedtest_duration = 250;
 	int estimated_peak_bitrate;
 
@@ -909,18 +910,26 @@ static void *status_thread(void *data)
 		else if (status.type == FTL_STATUS_VIDEO) {
 			ftl_video_frame_stats_msg_t *v = &status.msg.video_stats;
 
-			blog(LOG_INFO, "Queue an average of %3.2f fps (%3.1f kbps), sent an average of %3.2f fps (%3.1f kbps), queue fullness %d, max frame size %d\n",
+			blog(LOG_INFO, "Queue an average of %3.2f fps (%3.1f kbps), sent an average of %3.2f fps (%3.1f kbps), queue fullness %d, max frame size %d, bw throttle count %d\n",
 				(float)v->frames_queued * 1000.f / v->period,
 				(float)v->bytes_queued / v->period * 8,
 				(float)v->frames_sent * 1000.f / v->period,
 				(float)v->bytes_sent / v->period * 8,
-				v->queue_fullness, v->max_frame_size);
+				v->queue_fullness, v->max_frame_size, 
+				v->bw_throttling_count);
 		}
 		else if (status.type == FTL_STATUS_FRAMES_DROPPED) {
 			ftl_video_frames_dropped_msg_t *v = &status.msg.dropped;
 			stream->dropped_frames = v->frames_dropped;
 		}
-		else {
+		else if (status.type == FTL_STATUS_NETWORK) {
+			obs_encoder_t *video_encoder = obs_output_get_video_encoder(stream->output);
+			obs_data_t *video_settings = obs_encoder_get_settings(video_encoder);
+			ftl_network_msg_t *n = &status.msg.network;
+
+			obs_data_set_int(video_settings, "bitrate", n->target_bitrate);
+		}
+		else{
 			blog(LOG_INFO, "Status:  Got Status message of type %d\n", status.type);
 		}
 	}
