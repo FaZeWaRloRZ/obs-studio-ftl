@@ -415,7 +415,7 @@ static int send_packet(struct ftl_stream *stream,
 }
 
 static void set_peak_bitrate(struct ftl_stream *stream) {
-	int speedtest_kbps = 4000;
+	int speedtest_kbps = 20000;
 	int speedtest_duration = 250;
 	int estimated_peak_bitrate;
 
@@ -423,7 +423,7 @@ static void set_peak_bitrate(struct ftl_stream *stream) {
 
 	estimated_peak_bitrate = ftl_ingest_speed_test(&stream->ftl_handle, speedtest_kbps, speedtest_duration);
 
-	stream->params.peak_kbps = (float)estimated_peak_bitrate * 3.f / 4.f;
+	stream->params.peak_kbps = (float)estimated_peak_bitrate * 0.80; //the goal is to have a fairly conservative number
 
 	warn("Running speed test complete: estimated peak bitrate is %d, setting peak bitrate to %d\n", estimated_peak_bitrate, stream->params.peak_kbps);
 
@@ -927,7 +927,9 @@ static void *status_thread(void *data)
 			obs_data_t *video_settings = obs_encoder_get_settings(video_encoder);
 			ftl_network_msg_t *n = &status.msg.network;
 
-			obs_data_set_int(video_settings, "bitrate", n->target_bitrate);
+			int target_bitrate = (int)obs_data_get_int(video_settings, "bitrate");
+			obs_data_set_int(video_settings, "bitrate", target_bitrate + n->target_bitrate);
+			blog(LOG_INFO, "Status:  Bitrate changed to %d\n", target_bitrate + n->target_bitrate);
 		}
 		else{
 			blog(LOG_INFO, "Status:  Got Status message of type %d\n", status.type);
@@ -1040,7 +1042,7 @@ static bool init_connect(struct ftl_stream *stream)
 	stream->params.vendor_version = version.array;
 	stream->params.fps_num = 0; //not required when using ftl_ingest_send_media_dts
 	stream->params.fps_den = 0; // not required when using ftl_ingest_send_media_dts
-	stream->params.peak_kbps = 0;
+	stream->params.peak_kbps = target_bitrate * 3 / 2;
 
 	blog(LOG_ERROR, "H.264 opts %s\n", obs_data_get_string(video_settings, "x264opts")); 
 
