@@ -1036,17 +1036,13 @@ static bool init_connect(struct ftl_stream *stream)
 	int target_bitrate = (int)obs_data_get_int(video_settings, "bitrate");
 
 	stream->target_bitrate = target_bitrate;
-
-	struct dstr version;
-	dstr_init(&version);
-	dstr_printf(&version, "%d.%d.%d", LIBOBS_API_MAJOR_VER, LIBOBS_API_MINOR_VER, LIBOBS_API_PATCH_VER);
-
+	
 	stream->params.stream_key = (char*)key;
 	stream->params.video_codec = FTL_VIDEO_H264;
 	stream->params.audio_codec = FTL_AUDIO_OPUS;
 	stream->params.ingest_hostname = stream->path.array;
 	stream->params.vendor_name = "OBS Studio";
-	stream->params.vendor_version = version.array;
+	stream->params.vendor_version = OBS_VERSION;
 	stream->params.fps_num = 0; //not required when using ftl_ingest_send_media_dts
 	stream->params.fps_den = 0; // not required when using ftl_ingest_send_media_dts
 	stream->params.peak_kbps = target_bitrate * 3 / 2;
@@ -1061,7 +1057,6 @@ static bool init_connect(struct ftl_stream *stream)
 	dstr_copy(&stream->username, obs_service_get_username(service));
 	dstr_copy(&stream->password, obs_service_get_password(service));
 	dstr_depad(&stream->path);
-	dstr_free(&version);
 	
 	stream->drop_threshold_usec =
 		(int64_t)obs_data_get_int(settings, OPT_DROP_THRESHOLD) * 1000;
