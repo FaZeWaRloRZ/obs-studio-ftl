@@ -78,11 +78,11 @@ struct ftl_stream {
 
 	volatile bool    active;
 	volatile bool    disconnected;
-	//pthread_t        send_thread;
 
 	int              max_shutdown_time_sec;
 
-	//os_sem_t         *send_sem;
+	int				 target_bitrate;
+	int              total_bitrate_adjustment;
 	os_event_t       *stop_event;
 	uint64_t         stop_ts;
 
@@ -226,7 +226,7 @@ static void *ftl_stream_create(obs_data_t *settings, obs_output_t *output)
 	pthread_mutex_init_value(&stream->packets_mutex);
 	
 	ftl_init();
-	//&stream->ftl_handle = NULL;
+	stream->total_bitrate_adjustment = 0;
 
 	if (pthread_mutex_init(&stream->packets_mutex, NULL) != 0)
 		goto fail;
@@ -423,7 +423,8 @@ static void set_peak_bitrate(struct ftl_stream *stream) {
 
 	estimated_peak_bitrate = ftl_ingest_speed_test(&stream->ftl_handle, speedtest_kbps, speedtest_duration);
 
-	stream->params.peak_kbps = (float)estimated_peak_bitrate * 0.80; //the goal is to have a fairly conservative number
+	//stream->params.peak_kbps = (float)estimated_peak_bitrate * 0.80; //the goal is to have a fairly conservative number
+	stream->params.peak_kbps = (float)estimated_peak_bitrate; //the goal is to have a fairly conservative number
 
 	warn("Running speed test complete: estimated peak bitrate is %d, setting peak bitrate to %d\n", estimated_peak_bitrate, stream->params.peak_kbps);
 
@@ -910,7 +911,7 @@ static void *status_thread(void *data)
 		else if (status.type == FTL_STATUS_VIDEO) {
 			ftl_video_frame_stats_msg_t *v = &status.msg.video_stats;
 
-			blog(LOG_INFO, "Queue an average of %3.2f fps (%3.1f kbps), sent an average of %3.2f fps (%3.1f kbps), queue fullness %d, max frame size %d, bw throttle count %d\n",
+			blog(LOG_INFO, "Queue an average of %3.2f fps (%3.1f kbps), sent an average of %3.2f fps (%3.1f kbps), queue fullness %d, max frame size %d\n",
 				(float)v->frames_queued * 1000.f / v->period,
 				(float)v->bytes_queued / v->period * 8,
 				(float)v->frames_sent * 1000.f / v->period,
@@ -928,8 +929,23 @@ static void *status_thread(void *data)
 			ftl_network_msg_t *n = &status.msg.network;
 
 			int target_bitrate = (int)obs_data_get_int(video_settings, "bitrate");
-			obs_data_set_int(video_settings, "bitrate", target_bitrate + n->target_bitrate);
-			blog(LOG_INFO, "Status:  Bitrate changed to %d\n", target_bitrate + n->target_bitrate);
+			if (n->cmd == FTL_NETWORK_CMD_DECREASE_BITRATE) {
+				stream->total_bitrate_adjustment -= stream->target_bitrate / 100 * 5;
+
+				//dont let the bitrate drop below 500...
+				if (stream->total_bitrate_adjustment + stream->target_bitrate < 500) {
+					stream->total_bitrate_adjustment = 500 - stream->target_bitrate;
+				}
+			}
+			else if (n->cmd == FTL_NETWORK_CMD_INCREASE_BITRATE) {
+				stream->total_bitrate_adjustment += stream->target_bitrate / 100 * 5;
+
+				if (stream->total_bitrate_adjustment > 0) {
+					stream->total_bitrate_adjustment = 0;
+				}
+			}
+			obs_data_set_int(video_settings, "bitrate", stream->target_bitrate + stream->total_bitrate_adjustment);
+			blog(LOG_INFO, "Status:  Bitrate changed to %d (dropped pkts %d, network delay %dms, throttle count %d)\n", stream->target_bitrate + stream->total_bitrate_adjustment, n->dropped_packets, n->network_delay_ms, n->bw_throttling_count);
 		}
 		else{
 			blog(LOG_INFO, "Status:  Got Status message of type %d\n", status.type);
@@ -1018,17 +1034,8 @@ static bool init_connect(struct ftl_stream *stream)
 	}
 
 	int target_bitrate = (int)obs_data_get_int(video_settings, "bitrate");
-	int peak_bitrate = (int)((float)target_bitrate * 1.1);
 
-/*
-	if (obs_data_get_bool(video_settings, "use_bufsize")) {
-		peak_bitrate = obs_data_get_int(video_settings, "buffer_size");
-	}
-*/
-	//minimum overshoot tolerance of 10%
-	if (peak_bitrate < target_bitrate) {
-		peak_bitrate = target_bitrate;
-	}
+	stream->target_bitrate = target_bitrate;
 
 	struct dstr version;
 	dstr_init(&version);
